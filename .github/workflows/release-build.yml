@@ -82,8 +82,12 @@ jobs:
 
           echo "--- keystore ---"
           ls -la app/app.key
-          echo "--- local.properties 行数 ---"
-          wc -l local.properties
+          echo "--- keystore 格式确认 ---"
+          head -c 4 app/app.key | xxd | head -1
+          echo "--- local.properties 键名（不显示值） ---"
+          cut -d= -f1 local.properties
+          echo "--- 各值长度 ---"
+          awk -F= '{print $1": "length($2)" 字符"}' local.properties
 
       # 可选：覆盖版本号
       - name: Override version

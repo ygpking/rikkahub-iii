@@ -581,6 +581,15 @@ class GenerationLoop(
         val lineCount = fullText.count { it == '\n' } + 1
         val omitted = totalChars - head.length - tail.length
 
+        // 结构化分析：若输出是 JSON / JSON Lines，额外给出「形状」——
+        // 条数、字段清单、类型、出现率、样例。
+        // 单纯头尾截断会让模型看不到整体结构（例如 5000 条里有哪些字段、共多少条）。
+        // 注意：分析器内部已做 runCatching，任何失败都会退化为 null（走纯文本截断），
+        // 这里再兜一层，确保「分析」永远不会影响正常输出。
+        val structure = runCatching {
+            ToolOutputAnalyzer.summarize(fullText)?.let { ToolOutputAnalyzer.clamp(it) }
+        }.getOrNull()
+
         return listOf(
             UIMessagePart.Text(
                 buildString {
@@ -595,6 +604,12 @@ class GenerationLoop(
                         appendLine("Use tool `tool_output_read` to read/search the full output (no shell required).")
                     }
                     appendLine()
+                    if (structure != null) {
+                        appendLine("--- structure analysis (auto-detected) ---")
+                        appendLine(structure.trimEnd())
+                        appendLine("--- end structure analysis ---")
+                        appendLine()
+                    }
                     appendLine("--- begin (head) ---")
                     append(head)
                     if (tail.isNotEmpty()) {

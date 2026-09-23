@@ -127,6 +127,13 @@ internal object ToolOutputAnalyzer {
                             val raw = text.substring(itemStart, i + 1).trim()
                             if (raw.isNotEmpty()) items.add(raw)
                             itemStart = -1
+                        } else if (depth == 0 && itemStart >= 0) {
+                            // 数组闭合前，最后一个「标量元素」（数字/字符串/布尔/裸字面量）
+                            // 不是以 '}' 收尾的，必须在遇到 ']' 时补收，否则会丢掉末尾元素。
+                            val raw = text.substring(itemStart, i).trim()
+                            if (raw.isNotEmpty()) items.add(raw)
+                            itemStart = -1
+                            break
                         } else if (depth <= 0) {
                             break
                         }

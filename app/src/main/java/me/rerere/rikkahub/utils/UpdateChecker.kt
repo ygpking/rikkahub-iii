@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import me.rerere.common.http.await
@@ -21,7 +22,24 @@ import me.rerere.rikkahub.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-private const val API_URL = "https://updates.rikka-ai.com/"
+// 本项目（RikkaHub III）的更新源：查询本仓库的 GitHub Releases。
+// 注意：不可指向原项目 rikka-ai.com，否则会把用户引导去安装原版。
+private const val API_URL = "https://api.github.com/repos/ygpking/rikkahub-iii/releases/latest"
+
+@Serializable
+private data class GithubAsset(
+    @SerialName("name") val name: String = "",
+    @SerialName("browser_download_url") val downloadUrl: String = "",
+    @SerialName("size") val size: Long = 0L,
+)
+
+@Serializable
+private data class GithubRelease(
+    @SerialName("tag_name") val tagName: String = "",
+    @SerialName("published_at") val publishedAt: String = "",
+    @SerialName("body") val body: String = "",
+    @SerialName("assets") val assets: List<GithubAsset> = emptyList(),
+)
 
 class UpdateChecker(
     private val client: OkHttpClient,
@@ -35,6 +53,12 @@ class UpdateChecker(
         initialValue = UiState.Loading,
     )
 
+    private fun formatSize(bytes: Long): String {
+        if (bytes <= 0L) return ""
+        val mb = bytes / 1024.0 / 1024.0
+        return String.format(java.util.Locale.US, "%.1f MB", mb)
+    }
+
     private fun checkUpdate(): Flow<UiState<UpdateInfo>> = flow {
         emit(UiState.Loading)
         emit(
@@ -46,15 +70,28 @@ class UpdateChecker(
                             .get()
                             .addHeader(
                                 "User-Agent",
-                                "RikkaHub ${BuildConfig.VERSION_NAME} #${BuildConfig.VERSION_CODE}"
+                                "RikkaHubIII ${BuildConfig.VERSION_NAME} #${BuildConfig.VERSION_CODE}"
                             )
+                            .addHeader("Accept", "application/vnd.github+json")
                             .build()
                     ).await()
-                    if (response.isSuccessful) {
-                        json.decodeFromString<UpdateInfo>(response.body.string())
-                    } else {
-                        throw Exception("Failed to fetch update info")
+                    if (!response.isSuccessful) {
+                        throw Exception("Failed to fetch update info: HTTP ${response.code}")
                     }
+                    val release = json.decodeFromString<GithubRelease>(response.body.string())
+                    UpdateInfo(
+                        // tag 形如 v1.0.0，需去掉前缀再参与版本比较
+                        version = release.tagName.removePrefix("v"),
+                        publishedAt = release.publishedAt,
+                        changelog = release.body,
+                        downloads = release.assets.map { asset ->
+                            UpdateDownload(
+                                name = asset.name,
+                                url = asset.downloadUrl,
+                                size = formatSize(asset.size),
+                            )
+                        },
+                    )
                 } catch (e: Exception) {
                     throw Exception("Failed to fetch update info", e)
                 }

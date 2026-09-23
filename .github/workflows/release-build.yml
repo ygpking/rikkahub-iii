@@ -1,0 +1,126 @@
+name: Release Build
+
+on:
+  # 手动触发，可指定版本号
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 1.0.0），留空则用 build.gradle.kts 中的值'
+        required: false
+        default: ''
+      tag:
+        description: '发布 tag（如 v1.0.0），留空则不发布 Release 只出 artifact'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 发布 Release 需要写权限
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # web 模块的 preBuild 会执行 pnpm run build 构建前端，必须准备 Node + pnpm
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web-ui/pnpm-lock.yaml
+
+      - name: Install web-ui dependencies
+        working-directory: web-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+
+      - name: Prepare signing config
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          # 解码 base64 的 keystore
+          echo "${{ secrets.KEY_BASE64 }}" | base64 -d > app/app.key
+
+          # 写入签名配置到 local.properties（经环境变量传值，避免特殊字符破坏 shell）
+          {
+            echo "storeFile=app.key"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > local.properties
+
+          echo "--- keystore ---"
+          ls -la app/app.key
+          echo "--- local.properties 行数 ---"
+          wc -l local.properties
+
+      # 可选：覆盖版本号
+      - name: Override version
+        if: ${{ github.event.inputs.version != '' }}
+        run: |
+          V="${{ github.event.inputs.version }}"
+          echo "设置版本号为 $V"
+          sed -i -E "s/versionName = \"[^\"]*\"/versionName = \"$V\"/" app/build.gradle.kts
+          grep -n 'versionName' app/build.gradle.kts
+
+      - name: Gradle Build
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Show outputs
+        run: |
+          find app/build/outputs -type f -name "*.apk" -exec ls -la {} \;
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rikkahubiii-apk
+          path: app/build/outputs/apk/release/*.apk
+
+      - name: Publish Release
+        if: ${{ github.event.inputs.tag != '' || startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: RikkaHub III ${{ github.event.inputs.tag || github.ref_name }}
+          prerelease: false
+          body: |
+            基于 [RikkaHub](https://github.com/rikkahub/rikkahub) 修改的版本，按 AGPL-3.0 许可发布。
+
+            修改日期：2026-09-23 起
+            源码：https://github.com/ygpking/rikkahub-iii
+
+            > 本版本移除了原版的统计分析组件（Firebase）。
+          files: app/build/outputs/apk/release/*.apk

@@ -3,8 +3,6 @@ package me.rerere.rikkahub.ui.pages.extensions
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Book01
 import me.rerere.hugeicons.stroke.ArrowDown01
-import me.rerere.hugeicons.stroke.Download01
-import me.rerere.hugeicons.stroke.FileDownload
 import me.rerere.hugeicons.stroke.FileImport
 import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.Tools

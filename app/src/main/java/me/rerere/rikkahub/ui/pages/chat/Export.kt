@@ -61,7 +61,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.compose.runtime.mutableStateListOf
 import androidx.navigation3.runtime.NavKey
-import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.ui.context.Navigator
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest

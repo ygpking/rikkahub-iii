@@ -46,7 +46,6 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.AiMagic
 import me.rerere.hugeicons.stroke.Alert01
 import me.rerere.hugeicons.stroke.Book01
-import me.rerere.hugeicons.stroke.Book03
 import me.rerere.hugeicons.stroke.Bookshelf01
 import me.rerere.hugeicons.stroke.Brain02
 import me.rerere.hugeicons.stroke.Clapping01

@@ -18,7 +18,6 @@ import androidx.compose.ui.unit.dp
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.rikkahub.R
 import me.rerere.hugeicons.stroke.Book03
-import me.rerere.hugeicons.stroke.File02
 import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.hugeicons.stroke.Puzzle
 import me.rerere.hugeicons.stroke.Zap

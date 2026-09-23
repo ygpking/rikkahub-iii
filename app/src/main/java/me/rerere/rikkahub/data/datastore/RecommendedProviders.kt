@@ -8,7 +8,6 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import me.rerere.ai.provider.ProviderSetting
-import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import kotlin.uuid.Uuid
 
 /**

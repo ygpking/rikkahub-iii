@@ -5,7 +5,6 @@ import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.IOException
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.SharedPreferencesMigration
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
@@ -21,7 +20,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
-import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting

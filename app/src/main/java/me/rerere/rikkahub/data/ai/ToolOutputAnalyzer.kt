@@ -301,10 +301,56 @@ internal object ToolOutputAnalyzer {
         is JsonPrimitive -> when {
             element.isString -> "string"
             element.content == "true" || element.content == "false" -> "boolean"
-            element.content.toDoubleOrNull() != null -> "number"
+            isStrictJsonNumber(element.content) -> "number"
             else -> "string"
         }
         else -> "unknown"
+    }
+
+    /**
+     * 严格判定 JSON 数字字面量。
+     *
+     * 不能直接用 `toDoubleOrNull()`：它会接受 Kotlin 风格的字面量，
+     * 而这些并不是合法 JSON 数字，会造成类型误判：
+     *   "0x10"  ->  16.0   （十六进制，JSON 不支持）
+     *   "010"   ->  10.0   （前导零，JSON 不支持）
+     *   "1d"    ->  1.0    （Kotlin Double 后缀）
+     *   "1f"    ->  1.0
+     *   "Infinity"/"NaN" 等
+     * 这些值在 elementType 中会顶替掉本应正确判定的 null / string。
+     * 这里按 JSON 语法（RFC 8259）手写匹配：-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?
+     */
+    private fun isStrictJsonNumber(content: String): Boolean {
+        if (content.isEmpty()) return false
+        var i = 0
+        val n = content.length
+        if (content[i] == '-') {
+            i++
+            if (i >= n) return false
+        }
+        // 整数部分
+        if (content[i] == '0') {
+            i++
+        } else if (content[i] in '1'..'9') {
+            i++
+            while (i < n && content[i] in '0'..'9') i++
+        } else {
+            return false
+        }
+        // 小数部分
+        if (i < n && content[i] == '.') {
+            i++
+            if (i >= n || content[i] !in '0'..'9') return false
+            while (i < n && content[i] in '0'..'9') i++
+        }
+        // 指数部分
+        if (i < n && (content[i] == 'e' || content[i] == 'E')) {
+            i++
+            if (i < n && (content[i] == '+' || content[i] == '-')) i++
+            if (i >= n || content[i] !in '0'..'9') return false
+            while (i < n && content[i] in '0'..'9') i++
+        }
+        return i == n
     }
 
     private fun elementTypeSummary(array: JsonArray): String {

@@ -74,20 +74,26 @@ fun buildToolOutputReaderTool(context: Context): Tool = Tool(
                     ?.sortedByDescending { it.lastModified() }
                     ?.take(MAX_LIST_ENTRIES)
                     .orEmpty()
-                buildJsonObject {
-                    put("count", files.size)
-                    put("outputs", buildJsonArray {
-                        files.forEach { f ->
-                            add(
-                                buildJsonObject {
-                                    put("id", f.name.removeSuffix(".txt"))
-                                    put("sizeBytes", f.length())
-                                    put("modifiedAt", f.lastModified())
-                                }
-                            )
-                        }
-                    })
-                }.toString()
+                if (files.isEmpty()) {
+                    // 明确告知生命周期：目录在每次 App 启动时被清空，
+                    // 之前会话保存的输出已不存在，避免 AI 反复重试。
+                    """{"count":0,"note":"No saved tool outputs. This storage is temporary and is cleared every time the app starts; outputs from previous sessions no longer exist. Re-run the tool to regenerate if needed."}"""
+                } else {
+                    buildJsonObject {
+                        put("count", files.size)
+                        put("outputs", buildJsonArray {
+                            files.forEach { f ->
+                                add(
+                                    buildJsonObject {
+                                        put("id", f.name.removeSuffix(".txt"))
+                                        put("sizeBytes", f.length())
+                                        put("modifiedAt", f.lastModified())
+                                    }
+                                )
+                            }
+                        })
+                    }.toString()
+                }
             }
 
             "read" -> {
@@ -98,14 +104,20 @@ fun buildToolOutputReaderTool(context: Context): Tool = Tool(
                     file == null -> errorJson("output not found: $id")
                     else -> {
                         val offset = obj.int("offset")?.coerceAtLeast(0) ?: 0
-                        val full = file.readText()
-                        val slice = full.drop(offset).take(MAX_READ_CHARS)
+                        // 注意：工具输出文件保存的是【完整】原始输出，可能非常大。
+                        // 不能 readText() 整份载入内存再截取（大文件会浪费内存甚至 OOM），
+                        // 这里用 Reader 跳过 offset 后只读需要的那一段。
+                        val slice = readSlice(file, offset, MAX_READ_CHARS)
+                        // 注意：file.length() 是【字节】数，与 readSlice 的【字符】语义不一致，
+                        // 多字节字符（如中文）会导致 hasMore/后续 offset 计算错位。
+                        // 这里统一用字符数（UTF-16 单位），与 readSlice/offset 语义对齐。
+                        val totalChars = fileCharCount(file)
                         buildJsonObject {
                             put("id", id)
-                            put("totalChars", full.length)
+                            put("totalChars", totalChars)
                             put("offset", offset)
                             put("returnedChars", slice.length)
-                            put("hasMore", offset + slice.length < full.length)
+                            put("hasMore", offset + slice.length < totalChars)
                             put("text", slice)
                         }.toString()
                     }
@@ -156,6 +168,42 @@ private fun resolveOutputFile(dir: File, id: String): File? {
     if (safeId.isBlank() || safeId.contains("..")) return null
     val file = File(dir, "$safeId.txt")
     return if (file.isFile) file else null
+}
+
+/** 统计文件的字符数（UTF-16 单位）。readSlice 的 offset/limit 是字符语义，totalChars 必须与其对齐。 */
+private fun fileCharCount(file: File): Long = file.reader().use { reader ->
+    var count = 0L
+    val buf = CharArray(64 * 1024)
+    while (true) {
+        val n = reader.read(buf)
+        if (n < 0) break
+        count += n
+    }
+    count
+}
+
+/**
+ * 流式读取文件的一段：跳过 skip 个字符后，最多取 limit 个字符。
+ * 避免把整个（可能很大的）文件读进内存。
+ */
+private fun readSlice(file: File, skip: Int, limit: Int): String {
+    if (limit <= 0) return ""
+    return file.reader().use { reader ->
+        var toSkip = skip.toLong()
+        while (toSkip > 0) {
+            val skipped = reader.skip(toSkip)
+            if (skipped <= 0) break
+            toSkip -= skipped
+        }
+        val buffer = CharArray(limit)
+        var filled = 0
+        while (filled < limit) {
+            val read = reader.read(buffer, filled, limit - filled)
+            if (read < 0) break
+            filled += read
+        }
+        String(buffer, 0, filled)
+    }
 }
 
 private fun errorJson(message: String): String =

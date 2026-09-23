@@ -572,6 +572,8 @@ class GenerationLoop(
         File(outputDir, fileName).writeText(fullText)
 
         // 结构化预览：头部（结构/开头）+ 尾部（结论/报错/边界）+ 统计（行数/大小）
+        // 注意：落盘文件会在 App 重启时被 RikkaHubApp.cleanupToolOutputs() 清空，
+        // 因此提示语必须写明「临时」，否则 AI 会以为它可以跨会话取回（实测踩过）。
         val head = fullText.take(TOOL_OUTPUT_HEAD_CHARS)
         val tail = if (fullText.length > TOOL_OUTPUT_HEAD_CHARS + TOOL_OUTPUT_TAIL_CHARS) {
             fullText.takeLast(TOOL_OUTPUT_TAIL_CHARS)
@@ -595,7 +597,7 @@ class GenerationLoop(
                 buildString {
                     appendLine("[Tool output truncated]")
                     appendLine("Statistics: $totalChars characters, $lineCount lines, ${omitted.coerceAtLeast(0)} characters omitted in the middle")
-                    appendLine("Full output saved to: /tool_outputs/$fileName")
+                    appendLine("Full output saved (temporary, cleared on app restart) to: /tool_outputs/$fileName")
                     if (hasShellAccess) {
                         appendLine("Use shell to read more: `cat /tool_outputs/$fileName`")
                         appendLine("Use shell to search: `grep \"pattern\" /tool_outputs/$fileName`")

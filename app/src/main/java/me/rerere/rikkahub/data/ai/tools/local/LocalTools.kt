@@ -28,6 +28,9 @@ class LocalTools(
 
     val calendarCreateTool by lazy { buildCalendarCreateTool(context) }
 
+    /** 读取/检索被截断的工具输出全文（无 shell 也能用）。 */
+    val toolOutputReader by lazy { buildToolOutputReaderTool(context) }
+
     fun getTools(options: List<LocalToolOption>): List<Tool> {
         val tools = mutableListOf<Tool>()
         if (options.contains(LocalToolOption.JavascriptEngine)) {

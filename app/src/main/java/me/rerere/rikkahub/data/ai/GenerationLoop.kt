@@ -34,6 +34,7 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.transformers.InputMessageTransformer
 import me.rerere.rikkahub.data.ai.transformers.MessageTransformer
 import me.rerere.rikkahub.data.ai.transformers.OutputMessageTransformer
+import me.rerere.rikkahub.data.ai.tools.local.TOOL_OUTPUT_READER_TOOL_NAME
 import me.rerere.rikkahub.data.files.FileFolders
 import me.rerere.rikkahub.data.ai.transformers.onGenerationFinish
 import me.rerere.rikkahub.data.ai.transformers.transforms
@@ -53,7 +54,14 @@ import kotlin.uuid.Uuid
 
 private const val TAG = "GenerationHandler"
 private const val MAX_TOOL_OUTPUT_CHARS = 32 * 1024
-private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
+
+/**
+ * 结构化预览的头部/尾部分配。
+ * 单纯 `take(n)` 会丢掉尾部——而工具输出（日志、表格、JSON 数组、报错栈）的关键信息
+ * 往往在末尾，因此头部保留更多，尾部必须留一段。
+ */
+private const val TOOL_OUTPUT_HEAD_CHARS = 4 * 1024
+private const val TOOL_OUTPUT_TAIL_CHARS = 1 * 1024
 private const val MAX_PROVIDER_NETWORK_RETRIES = 3
 private const val INITIAL_PROVIDER_RETRY_DELAY_MS = 1_000L
 
@@ -267,8 +275,14 @@ class GenerationLoop(
                             Log.i(TAG, "generateText: executing tool ${toolDef.name} with args: $args")
                             val result = toolDef.execute(args)
                             val hasShellAccess = tools.any { it.name == "workspace_shell" }
+                            val hasOutputReader = tools.any { it.name == TOOL_OUTPUT_READER_TOOL_NAME }
                             executedTools += tool.copy(
-                                output = maybeTruncateToolOutput(tool.toolCallId, result, hasShellAccess)
+                                output = maybeTruncateToolOutput(
+                                    toolCallId = tool.toolCallId,
+                                    output = result,
+                                    hasShellAccess = hasShellAccess,
+                                    hasOutputReader = hasOutputReader,
+                                )
                             )
                         }.onFailure {
                             // 取消必须向上传播，否则停止生成会被误报为工具执行错误
@@ -537,31 +551,58 @@ class GenerationLoop(
         toolCallId: String,
         output: List<UIMessagePart>,
         hasShellAccess: Boolean,
+        hasOutputReader: Boolean,
     ): List<UIMessagePart> {
         val textParts = output.filterIsInstance<UIMessagePart.Text>()
         val nonTextParts = output.filter { it !is UIMessagePart.Text }
         val totalChars = textParts.sumOf { it.text.length }
 
-        if (totalChars <= MAX_TOOL_OUTPUT_CHARS || !hasShellAccess) return output
+        // 注意：这里不能因为「没有 shell」就跳过截断。
+        // 没有 workspace 的用户同样会用到 scrape_web / conversation_search 这类会返回大结果的工具，
+        // 若直接放行，超长输出会把上下文顶爆（这是原来的真实缺陷）。
+        // 正确做法：一律截断，只是把「怎么取回」的提示换成对应可用的工具。
+        if (totalChars <= MAX_TOOL_OUTPUT_CHARS) return output
 
         Log.i(TAG, "maybeTruncateToolOutput: truncating tool $toolCallId output ($totalChars chars)")
 
         val fullText = textParts.joinToString("\n") { it.text }
-        val preview = fullText.take(TOOL_OUTPUT_PREVIEW_CHARS)
 
         val fileName = "${toolCallId}.txt"
         val outputDir = File(context.filesDir, FileFolders.TOOL_OUTPUTS).apply { mkdirs() }
         File(outputDir, fileName).writeText(fullText)
 
+        // 结构化预览：头部（结构/开头）+ 尾部（结论/报错/边界）+ 统计（行数/大小）
+        val head = fullText.take(TOOL_OUTPUT_HEAD_CHARS)
+        val tail = if (fullText.length > TOOL_OUTPUT_HEAD_CHARS + TOOL_OUTPUT_TAIL_CHARS) {
+            fullText.takeLast(TOOL_OUTPUT_TAIL_CHARS)
+        } else {
+            ""
+        }
+        val lineCount = fullText.count { it == '\n' } + 1
+        val omitted = totalChars - head.length - tail.length
+
         return listOf(
             UIMessagePart.Text(
                 buildString {
-                    appendLine("[Tool output truncated: $totalChars characters total]")
+                    appendLine("[Tool output truncated]")
+                    appendLine("Statistics: $totalChars characters, $lineCount lines, ${omitted.coerceAtLeast(0)} characters omitted in the middle")
                     appendLine("Full output saved to: /tool_outputs/$fileName")
-                    appendLine("Use shell to read: `cat /tool_outputs/$fileName`")
-                    appendLine("Use shell to search: `grep \"pattern\" /tool_outputs/$fileName`")
+                    if (hasShellAccess) {
+                        appendLine("Use shell to read more: `cat /tool_outputs/$fileName`")
+                        appendLine("Use shell to search: `grep \"pattern\" /tool_outputs/$fileName`")
+                    }
+                    if (hasOutputReader) {
+                        appendLine("Use tool `tool_output_read` to read/search the full output (no shell required).")
+                    }
                     appendLine()
-                    append(preview)
+                    appendLine("--- begin (head) ---")
+                    append(head)
+                    if (tail.isNotEmpty()) {
+                        appendLine()
+                        appendLine("...(middle omitted, $omitted characters)...")
+                        appendLine("--- end (tail) ---")
+                        append(tail)
+                    }
                 }
             )
         ) + nonTextParts

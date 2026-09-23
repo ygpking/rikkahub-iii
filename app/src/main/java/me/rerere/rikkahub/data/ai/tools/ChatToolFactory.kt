@@ -60,6 +60,10 @@ class ChatToolFactory(
             addAll(createSearchTools(settings))
         }
         addAll(localTools.getTools(assistant.localTools))
+        // 工具输出读取器：始终可用（只读、无副作用）。
+        // 它与 GenerationLoop 的截断机制配套——被截断的完整输出需要一个取回入口，
+        // 否则没有 workspace（无 shell）的助手只能看到预览，永远拿不到细节。
+        add(localTools.toolOutputReader)
         if (assistant.enableRecentChatsReference) {
             addAll(createConversationTools(conversationRepository, assistant.id))
         }
